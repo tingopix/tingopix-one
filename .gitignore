@@ -1,0 +1,5 @@
+software-rpi/presets/
+software-rpi/env-tpx/
+software-rpi/numba_cache/
+__pycache__/
+*.pyc
