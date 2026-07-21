@@ -117,6 +117,5 @@ BLACK_LEVEL_B: int = 4096
 # Scanning produces large files, so an external drive is usually preferable:
 #     DEFAULT_FILEPATH = "/media/pi/my_drive/scans"
 # ----------------------------------------------------------------------------
-DEFAULT_FILEPATH: str = "~/mnt/xt12tb/test_frames"
-# DEFAULT_FILEPATH: str = "~/tingopix_scans"
+DEFAULT_FILEPATH: str = "~/tingopix_scans"
 DEFAULT_PREFIX:   str = "tpx"
