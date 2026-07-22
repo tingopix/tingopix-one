@@ -1,0 +1,23 @@
+# Tingopix — Raspberry Pi software dependencies
+#
+# Copyright (c) 2026 Pablo Miliani / Tingopix
+# Project: https://github.com/tingopix/tingopix-one
+# SPDX-License-Identifier: MIT
+#
+# Unpinned by design (no version ceilings for now).
+#
+# The venv is created with --system-site-packages, so packages marked
+# [system] below are already satisfied by the stock Raspberry Pi OS image and
+# pip will NOT reinstall them. They are listed here for documentation and so
+# tingopix-update can confirm they remain importable.
+#
+# WARNING: `pip freeze` cannot regenerate this file. Because of
+# --system-site-packages, freeze returns the ENTIRE system Python environment,
+# not just Tingopix's dependencies. Edit this file by hand.
+
+numpy      # [system] preinstalled — do NOT let pip pull a venv-local copy (shadows picamera2)
+psutil     # [system] preinstalled
+pyserial   # [system] preinstalled
+
+numba      # pip-installed into the venv (pulls llvmlite)
+tifffile   # pip-installed into the venv
