@@ -46,12 +46,47 @@ except ImportError:
 from numba import njit, prange
 import argparse
 import sys
+from datetime import datetime
 from pathlib import Path
+
+# ============================================================================
+# Console logging
+# ============================================================================
+# Format matches tpx_logger from the main TingoPix project so offline output
+# reads the same as the scanner's. Reimplemented locally rather than imported
+# to keep this file standalone — it is distributed as a single script.
+
+TAG_WIDTH = 5
+LOG_TAG = "POST"
+
+
+def log(message: str, level: str = "INFO") -> None:
+    """Print a timestamped, tagged log line.
+
+    Args:
+        message: The message string (already formatted by the caller).
+        level:   "INFO" (default), "WARN", or "ERR". WARN and ERR are
+                 written to stderr so they survive output redirection.
+    """
+    ts = datetime.now().strftime("%H:%M:%S")
+    tag_str = f"[{LOG_TAG:<{TAG_WIDTH}}]"
+
+    if level == "WARN":
+        print(f"[{ts}] [WARN ] {tag_str} {message}", file=sys.stderr, flush=True)
+    elif level == "ERR":
+        print(f"[{ts}] [ERR  ] {tag_str} {message}", file=sys.stderr, flush=True)
+    else:
+        print(f"[{ts}] {tag_str} {message}", flush=True)
+
 
 # ============================================================================
 # Constants & CCM calibration table
 # ============================================================================
 DEFAULT_BLACK_LEVEL = 4096
+
+# Colour temperature used when --color-temp is not given. Must be one of the
+# calibrated values in CCM_TEMPS below; anything else snaps to the nearest.
+DEFAULT_CCM_TEMPERATURE = 5600
 
 # Expected raw frame geometry (IMX477 full sensor readout). Enforced on input:
 # the crop maths and the GBRG phase assumptions both depend on these.
@@ -113,8 +148,8 @@ def extract_metadata(raw_frame):
     tuple is still returned but has_sprocket is False.
     """
     if raw_frame.shape[0] < META_ROWS_REQUIRED:
-        print(f"Warning: frame has {raw_frame.shape[0]} rows, "
-              f"need {META_ROWS_REQUIRED} to read metadata", file=sys.stderr)
+        log(f"Frame has {raw_frame.shape[0]} rows, "
+            f"need {META_ROWS_REQUIRED} to read metadata", level="WARN")
         return None
 
     try:
@@ -123,7 +158,7 @@ def extract_metadata(raw_frame):
         marker_pos_raw = int(raw_frame[2, -1])
         crop_h_raw = int(raw_frame[3, -1])
     except (IndexError, ValueError) as e:
-        print(f"Warning: could not read embedded metadata: {e}", file=sys.stderr)
+        log(f"Could not read embedded metadata: {e}", level="WARN")
         return None
 
     # Sentinel 0xFFFF means the capture side detected no sprocket.
@@ -135,9 +170,9 @@ def extract_metadata(raw_frame):
     marker_pos = int(np.int16(marker_pos_raw))
     crop_h = int(np.int16(crop_h_raw))
 
-    print(f"Metadata: film_pos={film_pos_raw}, film_edge={film_edge_raw}, "
-          f"marker_pos={marker_pos_raw}, crop_h={crop_h_raw}, "
-          f"has_sprocket={has_sprocket}")
+    log(f"Metadata: film_pos={film_pos_raw}, film_edge={film_edge_raw}, "
+        f"marker_pos={marker_pos_raw}, crop_h={crop_h_raw}, "
+        f"has_sprocket={has_sprocket}")
 
     return film_pos, film_edge, marker_pos, crop_h, has_sprocket
 
@@ -156,12 +191,12 @@ def extract_digital_gains(raw_frame):
         r_gain = float(raw_frame[5, -1]) / 1000.0
         b_gain = float(raw_frame[6, -1]) / 1000.0
     except (IndexError, ValueError) as e:
-        print(f"Warning: could not read embedded gains: {e}", file=sys.stderr)
+        log(f"Could not read embedded gains: {e}", level="WARN")
         return None
 
     if r_gain <= 0.0 or b_gain <= 0.0:
-        print(f"Warning: embedded gains are not positive "
-              f"(R={r_gain:.3f}, B={b_gain:.3f}), ignoring them", file=sys.stderr)
+        log(f"Embedded gains are not positive "
+            f"(R={r_gain:.3f}, B={b_gain:.3f}), ignoring them", level="WARN")
         return None
 
     return r_gain, b_gain
@@ -331,11 +366,11 @@ def resolve_gains(raw_u, r_gain, b_gain, use_dig_gains):
         dig_gains = extract_digital_gains(raw_u)
         if dig_gains:
             final_r_gain, final_b_gain = dig_gains
-            print(f"Using embedded digital gains: "
-                  f"R={final_r_gain:.3f}, B={final_b_gain:.3f}")
+            log(f"Using embedded digital gains: "
+                f"R={final_r_gain:.3f}, B={final_b_gain:.3f}")
         else:
-            print("Warning: could not extract embedded gains, "
-                  "falling back to 1.0 / 1.0", file=sys.stderr)
+            log("Could not extract embedded gains, "
+                "falling back to 1.0 / 1.0", level="WARN")
 
     if r_gain is not None:
         final_r_gain = r_gain
@@ -344,13 +379,12 @@ def resolve_gains(raw_u, r_gain, b_gain, use_dig_gains):
 
     for name, gain in (("Red", final_r_gain), ("Blue", final_b_gain)):
         if gain > 5.0:
-            print(f"Warning: {name} gain is very high ({gain:.3f})",
-                  file=sys.stderr)
+            log(f"{name} gain is very high ({gain:.3f})", level="WARN")
 
     return final_r_gain, final_b_gain
 
 
-def process_file(in_p, out_p, blc_int=DEFAULT_BLACK_LEVEL, ccm=False, temp=5100,
+def process_file(in_p, out_p, blc_int=DEFAULT_BLACK_LEVEL, ccm=False, temp=DEFAULT_CCM_TEMPERATURE,
                  stab=False, is_exr=False, r_gain=None, b_gain=None,
                  use_dig_gains=False, exr_full=False):
     """Develop one raw frame and write the result.
@@ -371,16 +405,16 @@ def process_file(in_p, out_p, blc_int=DEFAULT_BLACK_LEVEL, ccm=False, temp=5100,
     blc_f = float(blc_int) / 65535.0
     ccm_m, ccm_temp = get_ccm_matrix(temp)
     if ccm:
-        print(f"Using CCM for {ccm_temp}K (requested {temp}K)")
+        log(f"Using CCM for {ccm_temp}K (requested {temp}K)")
     apply_blc_ccm_float(rgb_f, blc_f, ccm, ccm_m, final_r_gain, final_b_gain)
 
     res = rgb_f
     if stab:
         if meta is None:
-            print("Warning: no metadata available, skipping crop stabilisation",
-                  file=sys.stderr)
+            log("No metadata available, skipping crop stabilisation",
+                level="WARN")
         elif not meta[4]:
-            print("No sprocket detected (sentinel value), skipping crop")
+            log("No sprocket detected (sentinel value), skipping crop")
         else:
             l, r, t, b = calculate_crop_params(
                 meta[0], meta[2], meta[3], meta[1], FRAME_HEIGHT)
@@ -399,7 +433,7 @@ def process_file(in_p, out_p, blc_int=DEFAULT_BLACK_LEVEL, ccm=False, temp=5100,
         final = np.clip(np.round(res * 65535.0), 0, 65535).astype(np.uint16)
         tifffile.imwrite(out_p, final, photometric='rgb')
 
-    print(f"Processed: {Path(in_p).name} -> {Path(out_p).name}", flush=True)
+    log(f"Processed: {Path(in_p).name} -> {Path(out_p).name}")
 
 
 def build_parser():
@@ -426,8 +460,10 @@ def build_parser():
     parser.add_argument('--ccm', action='store_true',
                         help='Apply the colour correction matrix. This gates '
                              'only the matrix step, not black level correction.')
-    parser.add_argument('--color-temp', type=int, default=5100, metavar='KELVIN',
-                        help=f'Colour temperature for the CCM (default: 5100). '
+    parser.add_argument('--color-temp', type=int,
+                        default=DEFAULT_CCM_TEMPERATURE, metavar='KELVIN',
+                        help=f'Colour temperature for the CCM '
+                             f'(default: {DEFAULT_CCM_TEMPERATURE}). '
                              f'The nearest calibrated matrix is used, with no '
                              f'interpolation. Calibrated at: {temps}.')
 
@@ -484,44 +520,44 @@ def main():
 
     if args.batch:
         if not in_path.is_dir():
-            print(f"Error: {in_path} is not a directory", file=sys.stderr)
+            log(f"{in_path} is not a directory", level="ERR")
             return 1
 
         files = sorted(f for f in in_path.iterdir()
                        if f.is_file() and f.suffix.lower() in ('.tif', '.tiff'))
         if not files:
-            print(f"Error: no TIFF files found in {in_path}", file=sys.stderr)
+            log(f"No TIFF files found in {in_path}", level="ERR")
             return 1
 
         try:
             out_path.mkdir(parents=True, exist_ok=True)
         except OSError as e:
-            print(f"Error: could not create {out_path}: {e}", file=sys.stderr)
+            log(f"Could not create {out_path}: {e}", level="ERR")
             return 1
 
-        print(f"Processing {len(files)} files to {ext}")
+        log(f"Processing {len(files)} files to {ext}")
         for i, f in enumerate(files):
             try:
                 process_file(str(f), str(out_path / f.with_suffix(ext).name),
                              **common)
             except (FrameError, OSError) as e:
-                print(f"\nError on {f.name}: {e}", file=sys.stderr)
-                print(f"Aborting: {i} of {len(files)} files completed.",
-                      file=sys.stderr)
+                log(f"Failed on {f.name}: {e}", level="ERR")
+                log(f"Aborting: {i} of {len(files)} files completed.",
+                    level="ERR")
                 return 1
 
-        print(f"Done: {len(files)} files processed.")
+        log(f"Done: {len(files)} files processed.")
         return 0
 
     if not in_path.is_file():
-        print(f"Error: {in_path} is not a file", file=sys.stderr)
+        log(f"{in_path} is not a file", level="ERR")
         return 1
 
     try:
         out_path.parent.mkdir(parents=True, exist_ok=True)
         process_file(str(in_path), str(out_path), **common)
     except (FrameError, OSError) as e:
-        print(f"Error on {in_path.name}: {e}", file=sys.stderr)
+        log(f"Failed on {in_path.name}: {e}", level="ERR")
         return 1
 
     return 0
