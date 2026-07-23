@@ -1,0 +1,24 @@
+# Tingopix — post-scan processing dependencies
+#
+# Install with:
+#     pip install -r requirements.txt
+#
+# Tested on:
+#     Linux x86_64, Python 3.10.12
+#     numpy 2.2.6, tifffile 2025.5.10, numba 0.63.1, llvmlite 0.46.0
+#
+# Other platforms and Python versions are expected to work but are not
+# verified. numba is the binding constraint: it lags new Python releases,
+# so a very recent Python may have no matching wheel yet.
+# llvmlite is pulled in by numba and is not listed separately.
+
+numpy>=2.0
+tifffile>=2024.1.1
+numba>=0.60
+
+# Optional — only needed for --exr / --exr-full output.
+# Requires OpenEXR system libraries and often fails to build on Windows,
+# so it is left out of the default install. TIFF output needs nothing extra.
+# Tested with pyexr 0.5.0.
+#
+#     pip install pyexr
