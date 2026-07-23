@@ -96,6 +96,17 @@ FRAME_HEIGHT = 3040
 # Rows of the final image column used to carry embedded metadata.
 META_ROWS_REQUIRED = 7
 
+# Row 4 records how the frame was captured. This determines whether the
+# embedded digital gains in rows 5-6 carry balance information:
+#   ALL — every channel captured simultaneously in a single exposure. The
+#         channels are unbalanced by nature, so the embedded gains are real
+#         and are what balances them.
+#   RGB — each channel captured separately with its own exposure and light
+#         setting. Balance is achieved optically at capture time, so no
+#         digital gain applies and the embedded gains are 1.0.
+CAPTURE_MODE_RGB = 0x0000
+CAPTURE_MODE_ALL = 0x0001
+
 CCM_TEMPS = np.array([
     2000, 2200, 2400, 2600, 2800, 3000, 3200, 3400, 3600,
     4100, 4600, 5100, 5600, 6100, 6600, 7100, 7600, 8100, 8600
@@ -146,6 +157,9 @@ def extract_metadata(raw_frame):
     if the values could not be read. A sentinel of 0xFFFF in film_pos or
     film_edge means the capture found no sprocket hole, in which case the
     tuple is still returned but has_sprocket is False.
+
+    The capture mode in row 4 is read and logged for information, but is not
+    returned: nothing in this tool varies its behaviour on it.
     """
     if raw_frame.shape[0] < META_ROWS_REQUIRED:
         log(f"Frame has {raw_frame.shape[0]} rows, "
@@ -157,6 +171,7 @@ def extract_metadata(raw_frame):
         film_edge_raw = int(raw_frame[1, -1])
         marker_pos_raw = int(raw_frame[2, -1])
         crop_h_raw = int(raw_frame[3, -1])
+        capture_mode_raw = int(raw_frame[4, -1])
     except (IndexError, ValueError) as e:
         log(f"Could not read embedded metadata: {e}", level="WARN")
         return None
@@ -170,8 +185,19 @@ def extract_metadata(raw_frame):
     marker_pos = int(np.int16(marker_pos_raw))
     crop_h = int(np.int16(crop_h_raw))
 
+    # Reported for information only; the mode does not alter processing here.
+    # An unrecognised value is printed as-is rather than assumed to be either
+    # mode, so a corrupt or newer-format frame stays visible.
+    if capture_mode_raw == CAPTURE_MODE_RGB:
+        capture_mode_str = "RGB"
+    elif capture_mode_raw == CAPTURE_MODE_ALL:
+        capture_mode_str = "ALL"
+    else:
+        capture_mode_str = f"unknown ({capture_mode_raw:#06x})"
+
     log(f"Metadata: film_pos={film_pos_raw}, film_edge={film_edge_raw}, "
         f"marker_pos={marker_pos_raw}, crop_h={crop_h_raw}, "
+        f"capture_mode={capture_mode_str}, "
         f"has_sprocket={has_sprocket}")
 
     return film_pos, film_edge, marker_pos, crop_h, has_sprocket
